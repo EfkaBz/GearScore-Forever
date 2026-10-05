@@ -1,0 +1,20 @@
+## Interface: 16001
+## Title: GearScore (Forever)
+## Author: Daeler
+## Version: 1.0.5
+## Notes: GearScore façon Classic / TBC Classic pour World of Warcraft: Forever
+## SavedVariables: GearscoreForeverDB
+## IconTexture: Interface\AddOns\Gearscore_Forever\Media\icon.tga
+## X-Category: Inventory
+## Category: Daeler Addons
+
+Locales.lua
+Core\Core.lua
+
+Modules\Score.lua
+Modules\Inspect.lua
+Modules\Tooltips.lua
+Modules\PaperDoll.lua
+Modules\Enchants.lua
+Modules\Commands.lua
+Modules\Options.lua
