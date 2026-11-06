@@ -105,8 +105,9 @@ local function CreateLabels(root, prefix, gap)
   local function Add(slotID, side)
     local button = NS.FindSlot(root, prefix, SLOT_NAMES[slotID], slotID)
     if not button then return end
-    local fs = button:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-    fs:SetTextColor(0.1, 1, 0.1)
+    local fs = button:CreateFontString(nil, "OVERLAY")
+    fs:SetFontObject(NS.Skin.Font(10))
+    fs:SetTextColor(NS.Skin.Color(NS.Skin.C.enchant))
     fs:SetWordWrap(true)
     if fs.SetMaxLines then fs:SetMaxLines(2) end
     if side == "left" then

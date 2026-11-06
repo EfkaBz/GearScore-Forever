@@ -13,7 +13,7 @@ local ADDON_NAME, NS = ...
 
 NS.ADDON_NAME = ADDON_NAME
 NS.VERSION = (C_AddOns and C_AddOns.GetAddOnMetadata
-  and C_AddOns.GetAddOnMetadata(ADDON_NAME, "Version")) or "1.0.5"
+  and C_AddOns.GetAddOnMetadata(ADDON_NAME, "Version")) or "1.1.0"
 
 -- =========================================================
 -- 1. BASE DE DONNÉES (SavedVariables)
@@ -99,7 +99,7 @@ end
 -- =========================================================
 -- 5. CHAT
 -- =========================================================
-local PREFIX = "|cff33ccffGearScore|r : "
+local PREFIX = "|cff5aa5e6GearScore|r : "
 
 function NS.Print(msg)
   DEFAULT_CHAT_FRAME:AddMessage(PREFIX .. tostring(msg))

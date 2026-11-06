@@ -16,6 +16,9 @@ local _, NS = ...
 
 local SLOT_MAINHAND = 16
 
+local S = NS.Skin
+local LABEL = "|cffa3afbf%s|r  %s"
+
 local function Walk(frame, fn, depth)
   if depth > 12 then return end
   for _, child in ipairs({ frame:GetChildren() }) do
@@ -80,15 +83,15 @@ end
 -- parent), à la hauteur de la rangée d'armes. Réduit la police si besoin.
 local function PlaceInGap(fs, rowButton, fromX, toX, fallbackPoint, fallbackX, xOffset, yOffset)
   fs:ClearAllPoints()
-  fs:SetFontObject(GameFontNormalLarge)
+  fs:SetFontObject(S.Font(15))
   local rowLeft = rowButton:GetLeft()
   if not (fromX and toX and rowLeft) or toX - fromX < 20 then
     fs:SetPoint(fallbackPoint == "LEFT" and "RIGHT" or "LEFT", rowButton, fallbackPoint, fallbackX + xOffset, yOffset)
     return
   end
   local gap = toX - fromX
-  if fs:GetStringWidth() > gap - 4 then fs:SetFontObject(GameFontNormal) end
-  if fs:GetStringWidth() > gap - 4 then fs:SetFontObject(GameFontNormalSmall) end
+  if fs:GetStringWidth() > gap - 4 then fs:SetFontObject(S.Font(13)) end
+  if fs:GetStringWidth() > gap - 4 then fs:SetFontObject(S.Font(11)) end
   local center = (fromX + toX) / 2
   fs:SetPoint("CENTER", rowButton, "LEFT", center - rowLeft + xOffset, yOffset)
 end
@@ -104,8 +107,8 @@ local function CreateScoreBlock(corners, yOffset, gsX, ilvlX)
   f:SetAllPoints(parent)
   f:SetFrameLevel(parent:GetFrameLevel() + 20)
 
-  f.gs = f:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
-  f.ilvl = f:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
+  f.gs = S.Text(f, 15)
+  f.ilvl = S.Text(f, 15)
 
   function f:Layout()
     local c = corners
@@ -115,26 +118,38 @@ local function CreateScoreBlock(corners, yOffset, gsX, ilvlX)
       c.rowEnd:GetRight(), c.rightColumn and c.rightColumn:GetLeft(), "RIGHT", 10, ilvlX, yOffset)
   end
 
-  function f:SetEntry(score, ilvl)
-    if not score or score <= 0 then
-      self.gs:SetText("GS : ...")
-      self.gs:SetTextColor(0.55, 0.55, 0.55)
-      self.ilvl:SetText("")
+  -- countUp : le score défile depuis l'ancienne valeur au lieu d'un simple fondu.
+  function f:SetEntry(score, ilvl, countUp)
+    local known = score and score > 0
+    if known then
+      self.gs:SetText(LABEL:format("GS", score))
+      self.ilvl:SetText(NS.DB().showItemLevel and LABEL:format("iLvl", ilvl) or "")
     else
-      local r, g, b = NS.GetQuality(score)
-      self.gs:SetText("GS : " .. score)
-      self.gs:SetTextColor(r, g, b)
-      self.ilvl:SetText(NS.DB().showItemLevel and ("iLvl : " .. ilvl) or "")
+      self.gs:SetText(LABEL:format("GS", "..."))
+      self.ilvl:SetText("")
     end
     self:Layout()
     -- SetFontObject remet la couleur par défaut : on la réapplique
-    if score and score > 0 then
-      local r, g, b = NS.GetQuality(score)
+    if known then
+      local r, g, b = NS.GetQuality(score) -- 4e valeur : le libellé
       self.gs:SetTextColor(r, g, b)
     else
-      self.gs:SetTextColor(0.55, 0.55, 0.55)
+      self.gs:SetTextColor(S.Color(S.C.dim))
     end
-    self.ilvl:SetTextColor(1, 0.82, 0)
+    self.ilvl:SetTextColor(S.Color(S.C.text))
+
+    local previous = self.shownScore
+    self.shownScore = known and score or nil
+    if previous == self.shownScore or not self:IsVisible() then return end
+    if countUp and previous and known then
+      S.Tween(self.gs, { dur = 0.45, from = previous, to = score, set = function(v)
+        self.gs:SetText(LABEL:format("GS", math.floor(v + 0.5)))
+      end })
+    else
+      S.StopTween(self.gs)
+      self:SetAlpha(0)
+      S.FadeTo(self, 1, 0.2)
+    end
   end
   return f
 end
@@ -144,7 +159,7 @@ local function UpdatePaperDoll()
   if not paperDollBlock then return end
   if not NS.DB().showPaperDoll then paperDollBlock:Hide() return end
   local score, ilvl = NS.GetUnitScore("player")
-  paperDollBlock:SetEntry(score, ilvl)
+  paperDollBlock:SetEntry(score, ilvl, true)
   paperDollBlock:Show()
 end
 NS.UpdatePaperDoll = UpdatePaperDoll

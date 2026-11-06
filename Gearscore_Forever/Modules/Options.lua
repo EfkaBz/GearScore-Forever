@@ -1,19 +1,19 @@
 -- Options.lua - GearScore (Forever)
--- Fenêtre d'options (cases à cocher) et bouton de la minicarte.
+-- Fenêtre d'options et bouton de la minicarte.
 
 local _, NS = ...
 local L = NS.L
+local S, C = NS.Skin, NS.Skin.C
 
 local ICON = "Interface\\AddOns\\Gearscore_Forever\\Media\\icon.tga"
 
 -- =========================================================
 -- FENÊTRE D'OPTIONS
 -- =========================================================
--- Même style que Books on map (Forever) : fond sombre, bordure dorée,
--- logo + titre, sections à bandeau doré.
 
-local WIDTH = 440
-local ROW_H, HEADER_H = 40, 26
+local WIDTH = 424
+local HEADER_H, FOOTER_H, PADDING, GAP = 62, 30, 14, 8
+local ROW_H = 40
 
 local SECTIONS = {
   { label = "Tooltips", options = {
@@ -29,12 +29,12 @@ local SECTIONS = {
   } },
   { label = "Interface", options = {
     { "minimap", "Show the minimap button" },
-  } },
+  }, language = true },
 }
 
 local panel
-local checks = {}
-local langChecks = {}
+local switches = {}
+local languageSelector, confirm, scoreValue, scoreSub
 
 -- Les libellés « English » / « Français » restent dans leur propre langue.
 local LANGUAGES = {
@@ -43,193 +43,176 @@ local LANGUAGES = {
   { value = "frFR", label = "Français" },
 }
 
--- Les textes déjà affichés ne changent qu'au rechargement de l'interface.
-StaticPopupDialogs["GEARSCOREFOREVER_RELOAD"] = {
-  text = "%s",
-  button1 = OKAY,
-  button2 = CANCEL,
-  OnAccept = function() ReloadUI() end,
-  timeout = 0,
-  whileDead = true,
-  hideOnEscape = true,
-}
-
-local function SetLanguage(value)
-  local db = NS.DB()
-  local old = db.language or "auto"
-  db.language = value
-  NS.UpdateOptionsPanel()
-  if value ~= old then
-    StaticPopup_Show("GEARSCOREFOREVER_RELOAD", L["The interface will reload to apply the language."])
-  end
-end
-
-local function CreateHeader(parent, text, y)
-  local h = CreateFrame("Frame", nil, parent)
-  h:SetPoint("TOPLEFT", 0, -y)
-  h:SetPoint("TOPRIGHT", 0, -y)
-  h:SetHeight(HEADER_H)
-
-  local bg = h:CreateTexture(nil, "BACKGROUND")
-  bg:SetAllPoints()
-  bg:SetColorTexture(1, 0.82, 0, 0.12)
-
-  local line = h:CreateTexture(nil, "ARTWORK")
-  line:SetHeight(1)
-  line:SetPoint("BOTTOMLEFT")
-  line:SetPoint("BOTTOMRIGHT")
-  line:SetColorTexture(1, 0.82, 0, 0.5)
-
-  local label = h:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-  label:SetPoint("LEFT", 8, 0)
-  label:SetText(text)
+-- Les textes déjà affichés ne changent qu'au rechargement de l'interface :
+-- la langue n'est enregistrée qu'une fois le rechargement accepté.
+local function SelectLanguage(value)
+  languageSelector:SetValue(value, true)
+  confirm:Ask(L["The interface will reload to apply the language."], function()
+    NS.DB().language = value
+    ReloadUI()
+  end, function()
+    languageSelector:SetValue(NS.DB().language or "auto", true)
+  end)
 end
 
 local function CreateRow(parent, name, desc, y)
   local opt = NS.OPTIONS[name]
   local row = CreateFrame("Button", nil, parent)
-  row:SetPoint("TOPLEFT", 0, -y)
-  row:SetPoint("TOPRIGHT", 0, -y)
+  row:SetPoint("TOPLEFT", 4, -y)
+  row:SetPoint("TOPRIGHT", -4, -y)
   row:SetHeight(ROW_H)
 
-  local hl = row:CreateTexture(nil, "HIGHLIGHT")
-  hl:SetAllPoints()
-  hl:SetColorTexture(1, 1, 1, 0.08)
+  local wash = row:CreateTexture(nil, "BACKGROUND")
+  wash:SetAllPoints()
+  wash:SetColorTexture(1, 1, 1, 0.035)
+  S.HoverFade(row, wash)
 
-  local cb = CreateFrame("CheckButton", nil, row, "UICheckButtonTemplate")
-  cb:SetSize(26, 26)
-  cb:SetPoint("LEFT", 6, 0)
+  local title = S.Text(row, 13)
+  local switch = S.Switch(row, function(p)
+    title:SetTextColor(S.LerpColor(C.muted, C.text, p))
+  end)
+  switch:SetPoint("RIGHT", -10, 0)
 
-  local title = row:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-  title:SetPoint("TOPLEFT", cb, "TOPRIGHT", 6, 0)
+  title:SetPoint("TOPLEFT", 10, -6)
+  title:SetPoint("RIGHT", switch, "LEFT", -10, 0)
+  title:SetWordWrap(false)
   title:SetText(L[opt.label])
 
-  local sub = row:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+  local sub = S.Text(row, 11, "muted")
   sub:SetPoint("TOPLEFT", title, "BOTTOMLEFT", 0, -3)
-  sub:SetTextColor(0.65, 0.65, 0.65)
-  sub:SetText(L[desc] .. "  |cff808080(/gs " .. name .. ")|r")
+  sub:SetPoint("RIGHT", switch, "LEFT", -10, 0)
+  sub:SetWordWrap(false)
+  sub:SetText(L[desc] .. "  |cff5c6a7c/gs " .. name .. "|r")
 
-  local function Apply(value)
-    NS.DB()[opt.key] = value
+  row:SetScript("OnClick", function()
+    local db = NS.DB()
+    db[opt.key] = not db[opt.key]
     NS.RefreshDisplays()
+  end)
+  switches[opt.key] = switch
+end
+
+local function CreateLanguageRow(parent, y)
+  local label = S.Text(parent, 13)
+  label:SetPoint("TOPLEFT", 14, -y - 13)
+  label:SetText(L["Language"])
+
+  local choices = {}
+  for i, choice in ipairs(LANGUAGES) do
+    choices[i] = { value = choice.value, label = L[choice.label] }
   end
-  cb:SetScript("OnClick", function(self) Apply(self:GetChecked() and true or false) end)
-  row:SetScript("OnClick", function() Apply(not NS.DB()[opt.key]) end)
-  checks[opt.key] = { cb = cb, title = title }
+  languageSelector = S.Segmented(parent, choices, 84, SelectLanguage)
+  languageSelector:SetPoint("TOPRIGHT", -14, -y - 8)
+end
+
+local function CreateHeader(f)
+  local logo = f:CreateTexture(nil, "ARTWORK")
+  logo:SetSize(38, 38)
+  logo:SetPoint("TOPLEFT", 14, -12)
+  logo:SetTexture(S.MEDIA .. "Logo")
+
+  local title = S.Text(f, 15)
+  title:SetPoint("TOPLEFT", logo, "TOPRIGHT", 10, -3)
+  title:SetText("GearScore")
+
+  local sub = S.Text(f, 11, "muted")
+  sub:SetPoint("TOPLEFT", title, "BOTTOMLEFT", 0, -3)
+  sub:SetText("Forever  ·  v" .. (NS.VERSION or "?"))
+
+  -- Résumé du personnage, à gauche du bouton de fermeture
+  scoreValue = S.Text(f, 18)
+  scoreValue:SetPoint("TOPRIGHT", -42, -12)
+  scoreValue:SetJustifyH("RIGHT")
+
+  scoreSub = S.Text(f, 11, "muted")
+  scoreSub:SetPoint("TOPRIGHT", scoreValue, "BOTTOMRIGHT", 0, -2)
+  scoreSub:SetJustifyH("RIGHT")
+
+  local rule = S.Rule(f, C.border, 1)
+  rule:SetPoint("TOPLEFT", PADDING, -HEADER_H + 1)
+  rule:SetPoint("TOPRIGHT", -PADDING, -HEADER_H + 1)
 end
 
 local function CreatePanel()
-  local f = CreateFrame("Frame", "GearscoreForeverOptions", UIParent, "BackdropTemplate")
-  f:SetPoint("CENTER")
-  f:SetFrameStrata("DIALOG")
-  f:SetMovable(true)
-  f:EnableMouse(true)
-  f:RegisterForDrag("LeftButton")
-  f:SetScript("OnDragStart", f.StartMoving)
-  f:SetScript("OnDragStop", f.StopMovingOrSizing)
-  f:SetClampedToScreen(true)
-  if f.SetBackdrop then
-    f:SetBackdrop({
-      bgFile = "Interface\\DialogFrame\\UI-DialogBox-Background-Dark",
-      edgeFile = "Interface\\DialogFrame\\UI-DialogBox-Gold-Border",
-      tile = true, tileSize = 32, edgeSize = 24,
-      insets = { left = 6, right = 6, top = 6, bottom = 6 },
-    })
-  end
+  local f = S.Window("GearscoreForeverOptions", WIDTH, 400)
   tinsert(UISpecialFrames, "GearscoreForeverOptions") -- Échap ferme la fenêtre
 
-  local close = CreateFrame("Button", nil, f, "UIPanelCloseButton")
-  close:SetPoint("TOPRIGHT", -4, -4)
+  CreateHeader(f)
 
-  -- En-tête : logo + titre
-  local logo = f:CreateTexture(nil, "ARTWORK")
-  logo:SetSize(40, 40)
-  logo:SetPoint("TOPLEFT", 16, -14)
-  logo:SetTexture(ICON)
+  local db = NS.DB()
+  db.collapsed = type(db.collapsed) == "table" and db.collapsed or {}
 
-  local title = f:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
-  title:SetPoint("TOPLEFT", logo, "TOPRIGHT", 10, -4)
-  title:SetText("GearScore (Forever)")
-
-  local sub = f:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-  sub:SetPoint("TOPLEFT", title, "BOTTOMLEFT", 0, -4)
-  sub:SetTextColor(0.7, 0.7, 0.7)
-  sub:SetText("Options  -  v" .. (NS.VERSION or "?"))
-
-  -- Liste des options
-  local list = CreateFrame("Frame", nil, f, "BackdropTemplate")
-  list:SetPoint("TOPLEFT", 14, -66)
-  list:SetPoint("TOPRIGHT", -14, -66)
-  if list.SetBackdrop then
-    list:SetBackdrop({
-      bgFile = "Interface\\Buttons\\WHITE8x8",
-      edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
-      edgeSize = 12,
-      insets = { left = 3, right = 3, top = 3, bottom = 3 },
-    })
-    list:SetBackdropColor(0, 0, 0, 0.5)
-    list:SetBackdropBorderColor(0.6, 0.5, 0.2, 0.8)
+  -- La fenêtre suit la hauteur des sections pendant qu'elles se replient.
+  local sections = {}
+  local function Relayout()
+    local total = HEADER_H + 4 + FOOTER_H
+    for _, s in ipairs(sections) do total = total + s:GetHeight() + GAP end
+    f:SetHeight(total)
   end
 
-  local content = CreateFrame("Frame", nil, list)
-  content:SetPoint("TOPLEFT", 6, -6)
-  content:SetPoint("TOPRIGHT", -6, -6)
+  local previous
+  for i, section in ipairs(SECTIONS) do
+    local key = section.label
+    local bodyHeight = #section.options * ROW_H + 4 + (section.language and ROW_H or 0)
+    local s = S.Section(f, L[section.label], bodyHeight,
+      function() return not NS.DB().collapsed[key] end,
+      function(open) NS.DB().collapsed[key] = (not open) or nil end,
+      Relayout)
+    if previous then
+      s:SetPoint("TOPLEFT", previous, "BOTTOMLEFT", 0, -GAP)
+      s:SetPoint("TOPRIGHT", previous, "BOTTOMRIGHT", 0, -GAP)
+    else
+      s:SetPoint("TOPLEFT", PADDING, -HEADER_H - 4)
+      s:SetPoint("TOPRIGHT", -PADDING, -HEADER_H - 4)
+    end
 
-  local y = 0
-  for _, section in ipairs(SECTIONS) do
-    CreateHeader(content, L[section.label], y)
-    y = y + HEADER_H + 2
+    local y = 0
     for _, o in ipairs(section.options) do
-      CreateRow(content, o[1], o[2], y)
+      CreateRow(s.body, o[1], o[2], y)
       y = y + ROW_H
     end
-    y = y + 6
-  end
+    if section.language then CreateLanguageRow(s.body, y) end
 
-  -- Langue : trois boutons, un seul coché
-  CreateHeader(content, L["Language"], y)
-  y = y + HEADER_H + 8
-  local x = 6
-  for _, choice in ipairs(LANGUAGES) do
-    local cb = CreateFrame("CheckButton", nil, content, "UICheckButtonTemplate")
-    cb:SetSize(26, 26)
-    cb:SetPoint("TOPLEFT", x, -y)
-    local label = cb:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
-    label:SetPoint("LEFT", cb, "RIGHT", 2, 0)
-    label:SetText(L[choice.label])
-    cb:SetScript("OnClick", function() SetLanguage(choice.value) end)
-    langChecks[choice.value] = cb
-    x = x + 120
+    sections[i] = s
+    previous = s
   end
-  y = y + 34
-  content:SetHeight(y)
-  list:SetHeight(y + 12)
+  Relayout()
 
   -- Pied : commandes utiles
-  local hint = f:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-  hint:SetPoint("BOTTOM", 0, 16)
-  hint:SetTextColor(0.6, 0.6, 0.6)
-  hint:SetText("/gs  -  /gs target  -  /gs group")
+  local hint = S.Text(f, 11, "dim")
+  hint:SetPoint("BOTTOM", 0, 12)
+  hint:SetText("/gs   ·   /gs target   ·   /gs group")
 
-  f:SetSize(WIDTH, 66 + y + 12 + 40)
-  f:SetScript("OnShow", NS.UpdateOptionsPanel)
-  f:Hide()
+  confirm = S.Confirm(f, L["Reload"], L["Cancel"])
+
+  f:HookScript("OnShow", function() NS.UpdateOptionsPanel() end)
   return f
 end
 
 function NS.UpdateOptionsPanel()
+  if not (panel and panel:IsVisible()) then return end
   local db = NS.DB()
-  for key, c in pairs(checks) do
-    c.cb:SetChecked(db[key])
-    if db[key] then c.title:SetTextColor(1, 0.82, 0) else c.title:SetTextColor(0.5, 0.5, 0.5) end
+  for key, switch in pairs(switches) do
+    switch:SetOn(db[key], true)
   end
-  local lang = db.language or "auto"
-  for value, cb in pairs(langChecks) do cb:SetChecked(value == lang) end
+  languageSelector:SetValue(db.language or "auto", true)
+
+  local entry = NS.GetPlayerEntry()
+  if entry.score > 0 then
+    scoreValue:SetText(entry.score)
+    local r, g, b = NS.GetQuality(entry.score) -- 4e valeur : le libellé
+    scoreValue:SetTextColor(r, g, b)
+    scoreSub:SetText("GS  ·  iLvl " .. entry.ilvl)
+  else
+    scoreValue:SetText("-")
+    scoreValue:SetTextColor(S.Color(C.dim))
+    scoreSub:SetText("GS")
+  end
 end
 
 function NS.ToggleOptions()
   panel = panel or CreatePanel()
-  panel:SetShown(not panel:IsShown())
+  S.Toggle(panel)
 end
 
 -- =========================================================
@@ -301,4 +284,11 @@ end
 
 local events = CreateFrame("Frame")
 events:RegisterEvent("PLAYER_LOGIN")
-events:SetScript("OnEvent", NS.UpdateMinimap)
+events:RegisterEvent("PLAYER_EQUIPMENT_CHANGED")
+events:SetScript("OnEvent", function(_, event)
+  if event == "PLAYER_LOGIN" then
+    NS.UpdateMinimap()
+  else
+    NS.UpdateOptionsPanel() -- le score du personnage a changé
+  end
+end)
