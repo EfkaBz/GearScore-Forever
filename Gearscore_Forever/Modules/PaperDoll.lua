@@ -18,6 +18,7 @@ local SLOT_MAINHAND = 16
 
 local S = NS.Skin
 local LABEL = "|cffa3afbf%s|r  %s"
+local LINE_GAP = 16 -- écart vertical entre la ligne GS et la ligne iLvl
 
 local function Walk(frame, fn, depth)
   if depth > 12 then return end
@@ -81,41 +82,54 @@ end
 
 -- Centre un texte horizontalement entre deux bords (en pixels écran du
 -- parent), à la hauteur de la rangée d'armes. Réduit la police si besoin.
-local function PlaceInGap(fs, rowButton, fromX, toX, fallbackPoint, fallbackX, xOffset, yOffset)
+local function PlaceInGap(fs, rowButton, fromX, toX, fallbackPoint, fallbackX, xOffset, yOffset, size)
+  size = size or 15
   fs:ClearAllPoints()
-  fs:SetFontObject(S.Font(15))
+  fs:SetFontObject(S.Font(size))
   local rowLeft = rowButton:GetLeft()
   if not (fromX and toX and rowLeft) or toX - fromX < 20 then
     fs:SetPoint(fallbackPoint == "LEFT" and "RIGHT" or "LEFT", rowButton, fallbackPoint, fallbackX + xOffset, yOffset)
     return
   end
   local gap = toX - fromX
-  if fs:GetStringWidth() > gap - 4 then fs:SetFontObject(S.Font(13)) end
-  if fs:GetStringWidth() > gap - 4 then fs:SetFontObject(S.Font(11)) end
+  if fs:GetStringWidth() > gap - 4 then fs:SetFontObject(S.Font(size - 2)) end
+  if fs:GetStringWidth() > gap - 4 then fs:SetFontObject(S.Font(size - 4)) end
   local center = (fromX + toX) / 2
   fs:SetPoint("CENTER", rowButton, "LEFT", center - rowLeft + xOffset, yOffset)
 end
 
--- yOffset : décalage vertical (négatif = plus bas).
--- gsX / ilvlX : décalage horizontal de chaque texte (négatif = vers la gauche).
-local function CreateScoreBlock(corners, yOffset, gsX, ilvlX)
+-- yOffset : décalage vertical de la ligne GS (négatif = plus bas).
+-- gsX : décalage horizontal du bloc (négatif = vers la gauche).
+-- size / lineGap : taille de police et écart entre la ligne GS et la ligne iLvl.
+local function CreateScoreBlock(corners, yOffset, gsX, size, lineGap)
   yOffset = yOffset or 0
   gsX = gsX or 0
-  ilvlX = ilvlX or 0
+  size = size or 15
+  lineGap = lineGap or LINE_GAP
   local parent = corners.mainHand:GetParent()
   local f = CreateFrame("Frame", nil, parent)
   f:SetAllPoints(parent)
   f:SetFrameLevel(parent:GetFrameLevel() + 20)
 
-  f.gs = S.Text(f, 15)
-  f.ilvl = S.Text(f, 15)
+  f.gs = S.Text(f, size)
+  f.ilvl = S.Text(f, size)
 
+  -- GS et iLvl empilés au même endroit (à gauche de la main droite) :
+  -- le GS à sa place habituelle, l'iLvl juste en dessous, même taille de police.
   function f:Layout()
     local c = corners
-    PlaceInGap(self.gs, c.mainHand,
-      c.leftColumn and c.leftColumn:GetRight(), c.mainHand:GetLeft(), "LEFT", -10, gsX, yOffset)
-    PlaceInGap(self.ilvl, c.rowEnd,
-      c.rowEnd:GetRight(), c.rightColumn and c.rightColumn:GetLeft(), "RIGHT", 10, ilvlX, yOffset)
+    local fromX, toX = c.leftColumn and c.leftColumn:GetRight(), c.mainHand:GetLeft()
+    PlaceInGap(self.gs, c.mainHand, fromX, toX, "LEFT", -10, gsX, yOffset, size)
+    if self.ilvl:GetText() == "" then return end
+    PlaceInGap(self.ilvl, c.mainHand, fromX, toX, "LEFT", -10, gsX, yOffset - lineGap, size)
+    -- aligner les deux lignes sur la plus petite police retenue
+    local gsSize = select(2, self.gs:GetFont()) or size
+    local ilvlSize = select(2, self.ilvl:GetFont()) or size
+    if gsSize ~= ilvlSize then
+      local font = S.Font(math.floor(math.min(gsSize, ilvlSize) + 0.5))
+      self.gs:SetFontObject(font)
+      self.ilvl:SetFontObject(font)
+    end
   end
 
   -- countUp : le score défile depuis l'ancienne valeur au lieu d'un simple fondu.
@@ -168,8 +182,8 @@ local function SetupPaperDoll()
   if paperDollBlock then return true end
   local corners = FindCorners(CharacterFrame or PaperDollFrame, "Character")
   if not corners then return false end
-  --                                       hauteur, GS, iLvl
-  paperDollBlock = CreateScoreBlock(corners, -14, -30, 30)
+  --                                       hauteur, X, police, écart
+  paperDollBlock = CreateScoreBlock(corners, -8, -30, 15, 16)
   paperDollBlock:SetScript("OnShow", UpdatePaperDoll)
   UpdatePaperDoll()
   return true
@@ -191,9 +205,10 @@ local function SetupInspect()
   if inspectBlock then return true end
   local corners = FindCorners(InspectFrame or InspectPaperDollFrame, "Inspect")
   if not corners then return false end
-  -- plus bas que sur la fiche perso : sous le fond du modèle
-  --                                     hauteur, GS, iLvl
-  inspectBlock = CreateScoreBlock(corners, -14, -30, 30)
+  -- moins de place sous le modèle : police plus petite et bloc remonté
+  -- pour que la ligne iLvl ne soit pas coupée par le bas de la fenêtre
+  --                                     hauteur, X, police, écart
+  inspectBlock = CreateScoreBlock(corners, -8, -30, 10, 11)
   inspectBlock:SetScript("OnShow", UpdateInspect)
   UpdateInspect()
   return true

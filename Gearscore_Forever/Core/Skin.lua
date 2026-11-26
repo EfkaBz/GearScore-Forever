@@ -67,6 +67,57 @@ local function gradient(tex, c1, c2, horizontal, keepTexture)
 end
 
 -- =========================================================
+-- THÈMES
+-- =========================================================
+-- « default » : l'interface de l'addon (ci-dessus). « forever » : l'interface de
+-- base du jeu, comme Dungeon Quests Forever : fenêtre à portrait, parchemin,
+-- zone sombre bordée d'or, cases, boutons et fenêtres de dialogue du jeu.
+-- Le thème est appliqué avant la création de la fenêtre ; en changer recharge
+-- l'interface. La palette est modifiée sur place (les modules gardent C).
+local FOREVER = {
+  title  = { 1, 0.82, 0, 1 },    -- le jaune du jeu (GameFontNormal)
+  text   = { 1, 1, 1, 1 },
+  muted  = { 0.66, 0.62, 0.52, 1 },
+  dim    = { 0.72, 0.68, 0.58, 1 },
+  border = { 0.6, 0.5, 0.2, 1 },
+  hover  = { 1, 0.82, 0, 1 },
+  accent = { 1, 0.82, 0, 1 },
+}
+
+function S.ApplyTheme(theme)
+  S.FOREVER = theme == "forever"
+  if not S.FOREVER then return end
+  for key, col in pairs(FOREVER) do
+    local t = C[key]
+    t[1], t[2], t[3], t[4] = col[1], col[2], col[3], col[4]
+  end
+end
+
+-- Couleur au format |cffRRGGBB.
+function S.Hex(t)
+  return string.format("|cff%02x%02x%02x", t[1] * 255, t[2] * 255, t[3] * 255)
+end
+
+-- Fond sombre à fine bordure dorée du jeu (petits panneaux, menus).
+local SMALL = {
+  bgFile = "Interface\\DialogFrame\\UI-DialogBox-Background-Dark",
+  edgeFile = "Interface\\DialogFrame\\UI-DialogBox-Gold-Border",
+  tile = true, tileSize = 32, edgeSize = 16,
+  insets = { left = 4, right = 4, top = 4, bottom = 4 },
+}
+
+local function backdrop(f, def)
+  if not f.SetBackdrop then
+    if not (Mixin and BackdropTemplateMixin) then return end
+    Mixin(f, BackdropTemplateMixin)
+    f:HookScript("OnSizeChanged", f.OnBackdropSizeChanged)
+  end
+  f:SetBackdrop(def)
+  f:SetBackdropColor(1, 1, 1, 1)
+  f:SetBackdropBorderColor(1, 1, 1, 1)
+end
+
+-- =========================================================
 -- ANIMATIONS
 -- =========================================================
 local ease = {
@@ -151,7 +202,9 @@ local POINTS = {
 }
 
 -- Texture carrée de `size` px, coins de `margin` px, affichés sur `cs` px.
-local function slice9(f, file, size, margin, cs, layer, sub)
+-- anchor : cadre sur lequel les textures se posent (f par défaut).
+local function slice9(f, file, size, margin, cs, layer, sub, anchor)
+  anchor = anchor or f
   local m = margin / size
   local u = { 0, m, 1 - m, 1 }
   local tex = {}
@@ -165,7 +218,7 @@ local function slice9(f, file, size, margin, cs, layer, sub)
   end
   for _, k in ipairs({ "TOPLEFT", "TOPRIGHT", "BOTTOMLEFT", "BOTTOMRIGHT" }) do
     tex[k]:SetSize(cs, cs)
-    tex[k]:SetPoint(k)
+    tex[k]:SetPoint(k, anchor)
   end
   tex.TOP:SetPoint("TOPLEFT", tex.TOPLEFT, "TOPRIGHT")
   tex.TOP:SetPoint("BOTTOMRIGHT", tex.TOPRIGHT, "BOTTOMLEFT")
@@ -293,11 +346,8 @@ local function CloseButton(parent, onClick)
   return b
 end
 
--- Fenêtre arrondie, déplaçable, ancrée par le haut (son bord haut ne bouge pas
--- quand sa hauteur change).
-function S.Window(name, width, height)
-  local f = CreateFrame("Frame", name, UIParent)
-  f:SetSize(width, height)
+-- Fenêtre déplaçable par glisser, ancrée par le haut ; Échap la cache.
+local function movable(f)
   f:SetFrameStrata("DIALOG")
   f:SetFrameLevel(10)
   f:SetClampedToScreen(true)
@@ -305,12 +355,6 @@ function S.Window(name, width, height)
   f:SetMovable(true)
   f.home = { "TOP", UIParent, "TOP", 0, -130 }
   restoreHome(f)
-
-  S.Shadow(f, 18, 0.55)
-  S.Rounded(f, 10, C.bg1, C.bg2)
-  for _, t in pairs(slice9(f, MEDIA .. "InnerGlow", 128, 32, 32, "BACKGROUND", -5)) do
-    t:SetVertexColor(C.accent[1], C.accent[2], C.accent[3], 0.05)
-  end
 
   f:RegisterForDrag("LeftButton")
   f:SetScript("OnDragStart", function(self)
@@ -325,18 +369,110 @@ function S.Window(name, width, height)
     self.home = { "TOPLEFT", UIParent, "BOTTOMLEFT", self:GetLeft(), self:GetTop() }
     restoreHome(self)
   end)
-
-  f.close = CloseButton(f, function() S.Close(f) end)
-  f.close:SetPoint("TOPRIGHT", -8, -8)
-
-  f:SetScript("OnShow", animateOpen)
+  f:HookScript("OnShow", animateOpen)
   -- Échap cache directement la fenêtre : on remet tout d'aplomb.
-  f:SetScript("OnHide", function(self)
+  f:HookScript("OnHide", function(self)
     S.StopTween(self)
     self.closing = nil
     self:SetAlpha(1)
     restoreHome(self)
   end)
+end
+
+-- Thème Forever : la fenêtre à portrait du jeu, comme Dungeon Quests Forever :
+-- l'icône de l'addon dans le rond, le titre dans la bande du haut, la croix
+-- rouge, le parchemin et une zone sombre bordée d'or pour le contenu.
+-- f.top : hauteur au-dessus du contenu. f.titleBar : rangée sous le titre, à
+-- droite du portrait (contrôles).
+S.FOREVER_TOP = 62
+
+local function atlasExists(name)
+  return C_Texture and C_Texture.GetAtlasInfo and C_Texture.GetAtlasInfo(name) ~= nil
+end
+
+local function gameWindow(name, width, height, title, icon)
+  local ok, f = pcall(CreateFrame, "Frame", name, UIParent, "PortraitFrameTemplate")
+  if not ok or not f then -- (modèle absent : boîte de dialogue à bordure dorée)
+    f = CreateFrame("Frame", name, UIParent)
+    backdrop(f, SMALL)
+    f.CloseButton = CreateFrame("Button", nil, f, "UIPanelCloseButton")
+    f.CloseButton:SetPoint("TOPRIGHT", -4, -4)
+  end
+  f:SetSize(width, height)
+  f.top = S.FOREVER_TOP
+
+  -- portrait : l'icône de l'addon, découpée en rond
+  local tex = (f.PortraitContainer and f.PortraitContainer.portrait) or f.portrait
+  if not tex then
+    tex = f:CreateTexture(nil, "OVERLAY")
+    tex:SetSize(58, 58)
+    tex:SetPoint("TOPLEFT", -5, 7)
+  end
+  tex:SetTexture(icon)
+  if tex.SetMask then pcall(tex.SetMask, tex, "Interface\\CharacterFrame\\TempPortraitAlphaMask") end
+
+  -- titre dans la bande du haut
+  f.title = f.TitleText or (f.TitleContainer and f.TitleContainer.TitleText)
+  if not f.title then
+    f.title = f:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    f.title:SetPoint("TOP", 0, -5)
+  end
+  f.title:SetText(title or "")
+
+  -- page de parchemin, puis la zone sombre bordée d'or du contenu
+  local page = f:CreateTexture(nil, "BACKGROUND", nil, 2)
+  page:SetPoint("TOPLEFT", 6, -S.FOREVER_TOP + 2)
+  page:SetPoint("BOTTOMRIGHT", -6, 6)
+  if atlasExists("spellbook-background-evergreen-left") then
+    page:SetAtlas("spellbook-background-evergreen-left")
+  else
+    page:SetTexture("Interface\\Spellbook\\Spellbook-Page-1")
+    page:SetTexCoord(0, 0.86, 0, 0.9)
+  end
+  local inset = CreateFrame("Frame", nil, f)
+  inset:SetPoint("TOPLEFT", 8, -S.FOREVER_TOP)
+  inset:SetPoint("BOTTOMRIGHT", -8, 8)
+  for _, t in pairs(slice9(f, MEDIA .. "Round10Fill", 64, 16, 8, "BACKGROUND", 3, inset)) do
+    t:SetVertexColor(0.03, 0.025, 0.02, 0.88)
+  end
+  for _, t in pairs(slice9(f, MEDIA .. "Round10Edge", 64, 16, 8, "BACKGROUND", 4, inset)) do
+    t:SetVertexColor(0.6, 0.5, 0.2, 0.9)
+  end
+
+  -- rangée sous le titre, à droite du portrait
+  local bar = CreateFrame("Frame", nil, f)
+  bar:SetPoint("TOPLEFT", 60, -24)
+  bar:SetPoint("TOPRIGHT", -8, -24)
+  bar:SetHeight(S.FOREVER_TOP - 26)
+  f.titleBar = bar
+
+  -- la croix du modèle passe par HideUIPanel : on garde notre fermeture animée
+  f.close = f.CloseButton
+  f.close:SetScript("OnClick", function() S.Close(f) end)
+
+  movable(f)
+  f:Hide()
+  return f
+end
+
+-- Fenêtre arrondie, déplaçable, ancrée par le haut (son bord haut ne bouge pas
+-- quand sa hauteur change). title / icon : thème Forever seulement.
+function S.Window(name, width, height, title, icon)
+  if S.FOREVER then return gameWindow(name, width, height, title, icon) end
+  local f = CreateFrame("Frame", name, UIParent)
+  f:SetSize(width, height)
+  f.top = 0
+
+  S.Shadow(f, 18, 0.55)
+  S.Rounded(f, 10, C.bg1, C.bg2)
+  for _, t in pairs(slice9(f, MEDIA .. "InnerGlow", 128, 32, 32, "BACKGROUND", -5)) do
+    t:SetVertexColor(C.accent[1], C.accent[2], C.accent[3], 0.05)
+  end
+
+  f.close = CloseButton(f, function() S.Close(f) end)
+  f.close:SetPoint("TOPRIGHT", -8, -8)
+
+  movable(f)
   f:Hide()
   return f
 end
@@ -350,7 +486,11 @@ local SECTION_HEADER = 30
 -- onStep() est appelé à chaque image de l'animation.
 function S.Section(parent, text, bodyHeight, isOpen, setOpen, onStep)
   local s = CreateFrame("Frame", nil, parent)
-  S.Rounded(s, 6, C.card1, C.card2)
+  if S.FOREVER then
+    backdrop(s, SMALL) -- petit panneau sombre à fine bordure dorée
+  else
+    S.Rounded(s, 6, C.card1, C.card2)
+  end
 
   local header = CreateFrame("Button", nil, s)
   header:SetPoint("TOPLEFT")
@@ -360,8 +500,12 @@ function S.Section(parent, text, bodyHeight, isOpen, setOpen, onStep)
   local chevron = header:CreateTexture(nil, "ARTWORK")
   chevron:SetSize(14, 14)
   chevron:SetPoint("LEFT", 9, 0)
-  chevron:SetTexture(MEDIA .. "Chevron")
-  chevron:SetVertexColor(color(C.dim))
+  if S.FOREVER then -- bouton + / - du jeu
+    chevron:SetSize(16, 16)
+  else
+    chevron:SetTexture(MEDIA .. "Chevron")
+    chevron:SetVertexColor(color(C.dim))
+  end
 
   local label = S.Text(header, 12, "title")
   label:SetPoint("LEFT", chevron, "RIGHT", 5, 0)
@@ -369,12 +513,19 @@ function S.Section(parent, text, bodyHeight, isOpen, setOpen, onStep)
 
   header:SetScript("OnEnter", function()
     label:SetTextColor(color(C.text))
-    chevron:SetVertexColor(color(C.accent))
+    if not S.FOREVER then chevron:SetVertexColor(color(C.accent)) end
   end)
   header:SetScript("OnLeave", function()
     label:SetTextColor(color(C.title))
-    chevron:SetVertexColor(color(C.dim))
+    if not S.FOREVER then chevron:SetVertexColor(color(C.dim)) end
   end)
+  if S.FOREVER then
+    local glow = header:CreateTexture(nil, "HIGHLIGHT")
+    glow:SetPoint("TOPLEFT", chevron, "TOPLEFT")
+    glow:SetPoint("BOTTOMRIGHT", chevron, "BOTTOMRIGHT")
+    glow:SetTexture("Interface\\Buttons\\UI-PlusButton-Hilight")
+    glow:SetBlendMode("ADD")
+  end
 
   local body = CreateFrame("Frame", nil, s)
   body:SetPoint("TOPLEFT", header, "BOTTOMLEFT")
@@ -385,7 +536,12 @@ function S.Section(parent, text, bodyHeight, isOpen, setOpen, onStep)
   local shown = isOpen() and 1 or 0
   local function apply(p)
     shown = p
-    chevron:SetRotation(math.rad(90) * (1 - p)) -- bas = ouvert, droite = replié
+    if S.FOREVER then
+      chevron:SetTexture(p > 0.5 and "Interface\\Buttons\\UI-MinusButton-Up"
+        or "Interface\\Buttons\\UI-PlusButton-Up")
+    else
+      chevron:SetRotation(math.rad(90) * (1 - p)) -- bas = ouvert, droite = replié
+    end
     body:SetHeight(math.max(0.01, bodyHeight * p))
     body:SetAlpha(p)
     body:SetShown(p > 0.01)
@@ -409,7 +565,24 @@ end
 -- =========================================================
 -- Interrupteur 32 x 16. Sans souris : c'est la ligne qui reçoit le clic.
 -- onStep(p) : 0 = éteint, 1 = allumé, à chaque image.
+-- Thème Forever : la case à cocher du jeu ; elle s'allume au survol de la ligne.
+local function gameCheck(parent, onStep)
+  local w = CreateFrame("CheckButton", nil, parent, "UICheckButtonTemplate")
+  w:SetSize(26, 26)
+  w:EnableMouse(false)
+  if w.text then w.text:SetText("") end
+  if w.Text then w.Text:SetText("") end
+  parent:HookScript("OnEnter", function() w:LockHighlight() end)
+  parent:HookScript("OnLeave", function() w:UnlockHighlight() end)
+  function w:SetOn(on)
+    self:SetChecked(on and true or false)
+    if onStep then onStep(on and 1 or 0) end
+  end
+  return w
+end
+
 function S.Switch(parent, onStep)
+  if S.FOREVER then return gameCheck(parent, onStep) end
   local w = CreateFrame("Frame", nil, parent)
   w:SetSize(32, 16)
 
@@ -449,6 +622,14 @@ end
 
 -- Bouton arrondi. primary : fond bleu.
 function S.Button(parent, text, width, onClick, primary)
+  if S.FOREVER then -- le bouton rouge du jeu
+    local b = CreateFrame("Button", nil, parent, "UIPanelButtonTemplate")
+    b:SetSize(width, 22)
+    b:SetText(text)
+    b.text = b:GetFontString()
+    b:SetScript("OnClick", onClick)
+    return b
+  end
   local b = CreateFrame("Button", nil, parent)
   b:SetSize(width, 24)
   S.Rounded(b, 6,
@@ -475,7 +656,35 @@ end
 
 -- Sélecteur à choix unique : le repère glisse sous l'option choisie.
 -- options = { { value = ..., label = ... }, ... }
+-- Thème Forever : une rangée de boutons du jeu, le choix courant allumé.
+local function gameSegmented(parent, options, segWidth, onSelect)
+  local f = CreateFrame("Frame", nil, parent)
+  f:SetSize(segWidth * #options, 22)
+  local buttons, current = {}, nil
+  for i, o in ipairs(options) do
+    local b = S.Button(f, o.label, segWidth - 2, function()
+      if o.value ~= current then onSelect(o.value) end
+    end)
+    b:SetPoint("LEFT", (i - 1) * segWidth + 1, 0)
+    buttons[o.value] = b
+  end
+  function f:SetValue(value)
+    current = value
+    for v, b in pairs(buttons) do
+      if v == value then
+        b:LockHighlight()
+        b:SetNormalFontObject(GameFontHighlight)
+      else
+        b:UnlockHighlight()
+        b:SetNormalFontObject(GameFontNormal)
+      end
+    end
+  end
+  return f
+end
+
 function S.Segmented(parent, options, segWidth, onSelect)
+  if S.FOREVER then return gameSegmented(parent, options, segWidth, onSelect) end
   local h = 24
   local f = CreateFrame("Frame", nil, parent)
   f:SetSize(segWidth * #options, h)
@@ -538,6 +747,22 @@ end
 -- Question posée par-dessus une fenêtre : voile sombre et petite carte.
 -- Renvoie un objet avec :Ask(texte, onAccept, onCancel).
 function S.Confirm(window, acceptLabel, cancelLabel)
+  if S.FOREVER then -- la fenêtre de dialogue du jeu
+    local onAccept, onCancel
+    StaticPopupDialogs.GEARSCOREFOREVER_CONFIRM = {
+      text = "", button1 = acceptLabel, button2 = cancelLabel,
+      OnAccept = function() if onAccept then onAccept() end end,
+      OnCancel = function() if onCancel then onCancel() end end,
+      timeout = 0, whileDead = true, hideOnEscape = true, preferredIndex = 3,
+    }
+    local dialog = {}
+    function dialog:Ask(text, acceptFn, cancelFn)
+      onAccept, onCancel = acceptFn, cancelFn
+      StaticPopupDialogs.GEARSCOREFOREVER_CONFIRM.text = text
+      StaticPopup_Show("GEARSCOREFOREVER_CONFIRM")
+    end
+    return dialog
+  end
   local veil = CreateFrame("Frame", nil, window)
   veil:SetAllPoints()
   veil:SetFrameLevel(window:GetFrameLevel() + 40)
@@ -557,11 +782,11 @@ function S.Confirm(window, acceptLabel, cancelLabel)
   msg:SetJustifyH("CENTER")
 
   local onAccept, onCancel
+  -- L'action part pendant le clic : ReloadUI() est protégé et refusé s'il est
+  -- appelé plus tard (fin de l'animation).
   local function dismiss(fn)
-    S.FadeTo(veil, 0, 0.12, function()
-      veil:Hide()
-      if fn then fn() end
-    end)
+    if fn then fn() end
+    S.FadeTo(veil, 0, 0.12, function() veil:Hide() end)
   end
   local accept = S.Button(card, acceptLabel, 110, function() dismiss(onAccept) end, true)
   accept:SetPoint("BOTTOMRIGHT", card, "BOTTOM", -4, 16)
@@ -594,4 +819,136 @@ function S.Confirm(window, acceptLabel, cancelLabel)
     end })
   end
   return dialog
+end
+
+-- =========================================================
+-- MENU DÉROULANT
+-- =========================================================
+-- Bouton avec une flèche qui pivote, menu qui glisse et apparaît en fondu ;
+-- un clic ailleurs le ferme. options = { { value = ..., label = ... }, ... }
+-- getValue() : choix courant. onSelect(value) : choix d'une autre option.
+local MENU_ROW, MENU_PAD = 22, 5
+
+function S.Dropdown(parent, options, width, getValue, onSelect)
+  local b = S.Button(parent, "", width)
+  b.text:ClearAllPoints()
+  b.text:SetPoint("CENTER", -7, 0)
+  if not S.FOREVER then
+    b:SetScript("OnMouseDown", nil)
+    b:SetScript("OnMouseUp", nil)
+  end
+
+  local arrow = b:CreateTexture(nil, "OVERLAY")
+  arrow:SetSize(12, 12)
+  arrow:SetPoint("RIGHT", -8, 0)
+  arrow:SetTexture(MEDIA .. "Chevron") -- pointe vers le bas
+  arrow:SetVertexColor(color(S.FOREVER and C.title or C.muted))
+  local angle = 0
+  local function turn(to)
+    S.Tween(arrow, { dur = 0.18, from = angle, to = to, set = function(v)
+      angle = v
+      arrow:SetRotation(math.rad(v))
+    end })
+  end
+
+  local menu, catcher, rows
+
+  local function refreshLabel()
+    local v = getValue()
+    for _, o in ipairs(options) do
+      if o.value == v then b.text:SetText(o.label) end
+    end
+  end
+
+  local function refreshRows()
+    local v = getValue()
+    for _, row in ipairs(rows) do
+      local on = row.value == v
+      row.mark:SetShown(on)
+      row.text:SetTextColor(color(on and C.title or C.text))
+    end
+  end
+
+  local function close(instant)
+    if not (menu and menu:IsShown()) then return end
+    catcher:Hide()
+    turn(0)
+    S.StopTween(menu)
+    if instant then
+      menu:Hide()
+      menu:SetAlpha(1)
+    else
+      S.FadeTo(menu, 0, 0.1, function() menu:Hide(); menu:SetAlpha(1) end)
+    end
+  end
+
+  local function build()
+    catcher = CreateFrame("Button", nil, UIParent)
+    catcher:SetAllPoints(UIParent)
+    catcher:SetFrameStrata("TOOLTIP")
+    catcher:SetFrameLevel(10)
+    catcher:RegisterForClicks("AnyUp")
+    catcher:SetScript("OnClick", function() close() end)
+    catcher:Hide()
+
+    menu = CreateFrame("Frame", nil, UIParent)
+    menu:SetFrameStrata("TOOLTIP")
+    menu:SetFrameLevel(20)
+    menu:SetSize(math.max(width, 120), #options * MENU_ROW + 2 * MENU_PAD)
+    menu:SetClampedToScreen(true)
+    menu:EnableMouse(true)
+    if S.FOREVER then
+      backdrop(menu, SMALL)
+    else
+      S.Shadow(menu, 10, 0.55)
+      S.Rounded(menu, 6, C.bg1, C.bg2, C.hover)
+    end
+    menu:Hide()
+
+    rows = {}
+    for i, o in ipairs(options) do
+      local row = CreateFrame("Button", nil, menu)
+      row:SetPoint("TOPLEFT", MENU_PAD, -MENU_PAD - (i - 1) * MENU_ROW)
+      row:SetPoint("TOPRIGHT", -MENU_PAD, -MENU_PAD - (i - 1) * MENU_ROW)
+      row:SetHeight(MENU_ROW)
+      row.value = o.value
+      local wash = row:CreateTexture(nil, "BACKGROUND")
+      wash:SetAllPoints()
+      wash:SetColorTexture(1, 1, 1, 0.08)
+      S.HoverFade(row, wash)
+      row.mark = row:CreateTexture(nil, "OVERLAY")
+      row.mark:SetSize(6, 6)
+      row.mark:SetPoint("LEFT", 7, 0)
+      row.mark:SetTexture(MEDIA .. "Disc")
+      row.mark:SetVertexColor(color(C.title))
+      row.text = S.Text(row, 12)
+      row.text:SetPoint("LEFT", 19, 0)
+      row.text:SetText(o.label)
+      row:SetScript("OnClick", function()
+        close()
+        if o.value ~= getValue() then onSelect(o.value) end
+        refreshLabel()
+      end)
+      rows[i] = row
+    end
+  end
+
+  b:SetScript("OnClick", function()
+    if not menu then build() end
+    if menu:IsShown() and catcher:IsShown() then close() return end
+    refreshRows()
+    catcher:Show()
+    menu:SetAlpha(0)
+    menu:Show()
+    turn(180)
+    S.Tween(menu, { dur = 0.16, from = 0, to = 1, set = function(v)
+      menu:SetAlpha(v)
+      menu:ClearAllPoints()
+      menu:SetPoint("TOPRIGHT", b, "BOTTOMRIGHT", 0, -2 - 6 * (1 - v))
+    end })
+  end)
+  b:HookScript("OnHide", function() close(true) end)
+  b.Refresh = refreshLabel
+  refreshLabel()
+  return b
 end

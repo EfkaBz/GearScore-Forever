@@ -6,15 +6,18 @@ local L = NS.L
 
 local OPTIONS = {
   item     = { key = "showItemTooltip", label = "GearScore in item tooltips" },
+  itemilvl = { key = "showItemLevelTooltip", label = "Item level in item tooltips" },
   player   = { key = "showUnitTooltip", label = "GearScore in player tooltips" },
   ilvl     = { key = "showItemLevel",   label = "Average item level" },
+  spec     = { key = "showTalentTooltip", label = "Talent spec in player tooltips" },
   auto     = { key = "autoInspect",     label = "Auto-inspect on mouseover" },
   sheet    = { key = "showPaperDoll",   label = "GearScore on character sheet" },
   inspect  = { key = "showInspect",     label = "GearScore on inspect window" },
   enchants = { key = "showEnchants",    label = "Enchants next to equipment slots" },
+  talentbutton = { key = "showTalentButton", label = "Talents button on inspect window" },
   minimap  = { key = "showMinimap",     label = "Minimap button" },
 }
-local OPTION_ORDER = { "item", "player", "ilvl", "auto", "sheet", "inspect", "enchants", "minimap" }
+local OPTION_ORDER = { "item", "itemilvl", "player", "ilvl", "spec", "auto", "sheet", "inspect", "enchants", "talentbutton", "minimap" }
 NS.OPTIONS, NS.OPTION_ORDER = OPTIONS, OPTION_ORDER
 -- Former French command names, kept as aliases.
 local ALIASES = { joueur = "player", fiche = "sheet", cible = "target", groupe = "group" }
@@ -37,6 +40,7 @@ local function Help()
   print(L["  /gs  - your GearScore"])
   print(L["  /gs target  - inspect and show your target's GearScore"])
   print(L["  /gs group (party, raid)  - known GearScores of party / raid members"])
+  print(L["  /gs talents  - talents of your target (yours without a target)"])
   print(L["  /gs config  - open the options window"])
   print(L["  /gs options  - show option states"])
   print(L["  /gs <option>  - toggle: "] .. table.concat(OPTION_ORDER, ", "))
@@ -71,6 +75,7 @@ local function RefreshDisplays()
   if NS.UpdateInspect then NS.UpdateInspect() end
   if NS.UpdateEnchants then NS.UpdateEnchants() end
   if NS.UpdateMinimap then NS.UpdateMinimap() end
+  if NS.UpdateTalentButton then NS.UpdateTalentButton() end
   if NS.UpdateOptionsPanel then NS.UpdateOptionsPanel() end
 end
 NS.RefreshDisplays = RefreshDisplays
@@ -101,6 +106,8 @@ SlashCmdList.GEARSCOREFOREVER = function(msg)
         NS.Print(L["Cannot inspect (out of range, in combat or too soon)."])
       end
     end
+  elseif cmd == "talents" or cmd == "talent" then
+    NS.ShowTalents("target")
   elseif cmd == "group" or cmd == "party" or cmd == "raid" then
     PrintGroup()
   elseif cmd == "options" then
@@ -116,6 +123,7 @@ SlashCmdList.GEARSCOREFOREVER = function(msg)
     NS.debug = not NS.debug
     NS.Print("Debug " .. (NS.debug and "enabled" or "disabled"))
     NS.DebugFrames()
+    if NS.DebugTalentTabs then NS.DebugTalentTabs() end
   elseif OPTIONS[cmd] then
     local opt = OPTIONS[cmd]
     db[opt.key] = not db[opt.key]

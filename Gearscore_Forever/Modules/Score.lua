@@ -154,6 +154,13 @@ local function EffectiveItemLevel(link, baseLevel)
   return baseLevel
 end
 
+-- Niveau d'objet effectif d'un lien (nil si l'objet n'est pas encore en cache).
+function NS.GetItemLevel(link)
+  local _, _, _, baseLevel = NS.GetItemInfo(link)
+  if not baseLevel then return nil end
+  return EffectiveItemLevel(link, baseLevel)
+end
+
 -- GearScore d'un objet.
 -- Renvoie score, ilvl, r, g, b, equipLoc ; ou nil si l'objet n'est pas encore
 -- en cache (une requête de chargement est alors envoyée).

@@ -105,8 +105,11 @@ local function Finish(guid, unit, attempt)
   if isPending then
     if pending.print then NS.PrintEntry(entry) end
     pending = nil
-    -- ne pas couper une inspection ouverte par le joueur
-    if not InspectFrameOpen() then ClearInspectPlayer() end
+    -- ne pas couper une inspection ouverte par le joueur ; on attend aussi
+    -- que Talents.lua ait fini de relire les talents (jusqu'à 1 s)
+    C_Timer.After(1.2, function()
+      if not pending and not InspectFrameOpen() then ClearInspectPlayer() end
+    end)
   end
   Notify(guid, entry)
 end
@@ -116,6 +119,7 @@ NS.RegisterEvents({
     guid = NS.Safe(guid)
     if not guid then return end
     local unit = pending and pending.guid == guid and pending.unit or nil
+    if NS.CaptureTalents then NS.CaptureTalents(guid, unit) end
     Finish(guid, unit, 0)
   end,
 })

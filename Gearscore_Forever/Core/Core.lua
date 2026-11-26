@@ -13,7 +13,7 @@ local ADDON_NAME, NS = ...
 
 NS.ADDON_NAME = ADDON_NAME
 NS.VERSION = (C_AddOns and C_AddOns.GetAddOnMetadata
-  and C_AddOns.GetAddOnMetadata(ADDON_NAME, "Version")) or "1.1.0"
+  and C_AddOns.GetAddOnMetadata(ADDON_NAME, "Version")) or "1.3.2"
 
 -- =========================================================
 -- 1. BASE DE DONNÉES (SavedVariables)
@@ -22,12 +22,15 @@ GearscoreForeverDB = GearscoreForeverDB or {}
 
 local DB_DEFAULTS = {
   showItemTooltip = true,   -- GearScore de l'objet dans son infobulle
+  showItemLevelTooltip = true, -- niveau d'objet dans l'infobulle des objets
   showUnitTooltip = true,   -- GearScore des joueurs survolés
   showItemLevel = true,     -- niveau d'objet moyen à côté du GearScore
+  showTalentTooltip = true, -- arbre principal et points (Feu 0/48/3) des joueurs survolés
   autoInspect = true,       -- inspection automatique des joueurs survolés
   showPaperDoll = true,     -- GearScore sur la fiche de personnage
   showInspect = true,       -- GearScore sur la fenêtre d'inspection
   showEnchants = true,      -- nom des enchantements à côté des cases
+  showTalentButton = true,  -- bouton « Talents » sur la fenêtre d'inspection
   showMinimap = true,       -- bouton autour de la minicarte
   minimapAngle = 220,       -- position du bouton (degrés)
 }

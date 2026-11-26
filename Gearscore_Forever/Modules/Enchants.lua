@@ -32,10 +32,72 @@ end
 
 local cache = {}
 
+-- Les enchantements sont toujours affichés en anglais (plus courts) : sur un
+-- client français, le texte de l'infobulle est d'abord traduit. Appliqué dans
+-- l'ordre (les plus longs d'abord), sans tenir compte de la casse de la 1re
+-- lettre.
+local FR_TO_EN = {
+  -- enchantements nommés
+  { "Croisé", "Crusader" }, { "Vol de vie", "Lifestealing" }, { "Mangouste", "Mongoose" },
+  { "Tueur de démons", "Demonslaying" }, { "Arme flamboyante", "Fiery Weapon" },
+  { "Arme de feu", "Fiery Weapon" }, { "Froid glacial", "Icy Chill" }, { "Impie", "Unholy" },
+  { "Tueur de bêtes", "Beastslaying" }, { "Tueur d'élémentaires", "Elemental Slayer" },
+  { "Marche sur l'eau", "Water Walking" }, { "Vitesse de monture", "Mount Speed" },
+  { "Vitesse d'attaque", "Attack Speed" },
+  { "Augmentation mineure de la vitesse", "Speed" }, { "Vitesse de déplacement", "Speed" },
+  { "Vitesse de course", "Speed" }, { "Augmentation de la vitesse", "Speed" },
+  -- caractéristiques
+  { "dégâts et soins des sorts", "SP" }, { "dégâts des sorts et soins", "SP" },
+  { "puissance des sorts", "SP" }, { "dégâts des sorts", "SP" }, { "sorts de soins", "Heal" },
+  { "puissance d'attaque à distance", "RAP" }, { "puissance d'attaque", "AP" },
+  { "toutes les caractéristiques", "Stats" }, { "toutes les résistances", "All Res" },
+  { "mana toutes les 5 sec%.?", "MP5" }, { "mana toutes les 5 secondes", "MP5" },
+  { "points de mana", "Mana" }, { "points de vie", "HP" },
+  { "score de coup critique", "Crit" }, { "coup critique", "Crit" }, { "critique", "Crit" },
+  { "score de toucher", "Hit" }, { "toucher", "Hit" },
+  { "score de défense", "Def" }, { "défense", "Def" }, { "Défense", "Def" },
+  { "résistance au feu", "Fire Res" }, { "résistance au givre", "Frost Res" },
+  { "résistance à la nature", "Nature Res" }, { "résistance à l'ombre", "Shadow Res" },
+  { "résistance aux arcanes", "Arcane Res" }, { "Résistance", "Res" }, { "résistance", "Res" },
+  { "dégâts de l'arme", "Wpn Dmg" }, { "dégâts", "Dmg" }, { "Dégâts", "Dmg" },
+  { "soins", "Heal" }, { "esquive", "Dodge" }, { "parade", "Parry" }, { "blocage", "Block" },
+  { "force", "Str" }, { "agilité", "Agi" }, { "endurance", "Sta" },
+  { "intelligence", "Int" }, { "esprit", "Spi" }, { "armure", "Armor" },
+}
+
+-- Motif insensible à la casse de la première lettre (si elle est ASCII).
+local function FirstLetterAnyCase(s)
+  local c = s:sub(1, 1)
+  if c:match("%a") then return "[" .. c:upper() .. c:lower() .. "]" .. s:sub(2) end
+  return s
+end
+for _, pair in ipairs(FR_TO_EN) do pair[1] = FirstLetterAnyCase(pair[1]) end
+
+-- Mots de liaison français entre le nombre et la caractéristique.
+local CONNECTORS = {
+  "%s+à%s+la%s+", "%s+à%s+l'", "%s+aux%s+", "%s+au%s+", "%s+à%s+", "%s+en%s+",
+  "%s+de%s+", "%s+d'", "%s+points?%s+de%s+",
+}
+
+local function ToEnglish(text)
+  -- le client écrit « d’attaque » (apostrophe typographique) et met des
+  -- espaces insécables : on les ramène à ' et à l'espace simple
+  text = text:gsub("\226\128\153", "'"):gsub("\194\160", " "):gsub("\226\128\175", " ")
+  for _, pair in ipairs(FR_TO_EN) do
+    text = text:gsub(pair[1], pair[2])
+  end
+  for _, c in ipairs(CONNECTORS) do
+    text = text:gsub("(%d)" .. c, "%1 ")
+  end
+  text = text:gsub("%%%s+de%s+", "%% ") -- « +1 % de Crit » -> « +1 % Crit »
+  return text
+end
+
 -- Abréviations appliquées dans l'ordre (les plus longues d'abord).
 local ABBREVIATIONS = {
+  -- vitesse d'attaque (libram) : « Attack Speed +1% » -> « 1%AS »
+  { "Attack Speed%s*%+?(%d+)%s?%%", "%1%%AS" }, { "%+?(%d+)%s?%%%s*Attack Speed", "%1%%AS" },
   { "Damage and Healing Spells", "SP" }, { "Ranged Attack Power", "RAP" }, { "Attack Power", "AP" },
-  { "Puissance d'attaque à distance", "PAD" }, { "Puissance d'attaque", "PA" },
   { "All Stats", "Stats" }, { "All Resistances", "All Res" },
   { "Healing Spells", "Heal" }, { "Healing", "Heal" }, { "Spell Damage", "SP" },
   { "Spell Power", "SP" },
@@ -45,39 +107,84 @@ local ABBREVIATIONS = {
   { "Stamina", "Sta" }, { "Intellect", "Int" }, { "Spirit", "Spi" },
   { "Resistance", "Res" }, { "Damage", "Dmg" },
   { "Weapon", "Wpn" }, { "Minor Speed Increase", "Speed" }, { "Run Speed", "Speed" },
-  { "Force", "For" }, { "Agilité", "Agi" }, { "Endurance", "End" },
-  { "Intelligence", "Int" }, { "Esprit", "Esp" }, { "Armure", "Arm" },
-  { "Résistance", "Rés" }, { "Dégâts", "Dég" }, { "Soins", "Soin" },
-  { "Toutes les caractéristiques", "Stats" }, { "Défense", "Déf" },
   { " and ", " & " }, { " et ", " & " },
 }
 
+local function Shorten(text)
+  -- retire le préfixe « Enchanted: » / « Enchanté : »
+  local short = text:gsub("^[^:]-%s?:%s*", "", 1)
+  if short == "" then short = text end
+  short = ToEnglish(short)
+  for _, abbr in ipairs(ABBREVIATIONS) do
+    short = short:gsub(abbr[1], abbr[2])
+  end
+  return short
+end
+
+-- Lignes vertes propres à l'objet (« Équipé : », « Utiliser : », « Chance
+-- quand vous touchez : », bonus d'ensemble) : jamais un enchantement.
+local EFFECT_PREFIXES = {}
+for _, key in ipairs({ "ITEM_SPELL_TRIGGER_ONEQUIP", "ITEM_SPELL_TRIGGER_ONUSE",
+  "ITEM_SPELL_TRIGGER_ONPROC", "ITEM_SET_BONUS", "ITEM_SET_BONUS_GRAY" }) do
+  local s = _G[key]
+  if type(s) == "string" then
+    -- « Ensemble : %s » -> « Ensemble : » ; « (%d) Ensemble : %s » -> « (%d+) Ensemble : »
+    s = s:gsub("%%s.*$", ""):gsub("\194\160", " "):gsub("\226\128\175", " "):gsub("%s+$", "")
+    s = s:gsub("[%(%)%.%[%]%*%+%-%?%^%$]", "%%%0"):gsub("%%d", "%%d+")
+    if s ~= "" then EFFECT_PREFIXES[#EFFECT_PREFIXES + 1] = "^" .. s end
+  end
+end
+local function IsItemEffectLine(text)
+  text = text:gsub("\194\160", " "):gsub("\226\128\175", " ")
+  for _, p in ipairs(EFFECT_PREFIXES) do
+    if text:find(p) then return true end
+  end
+  return false
+end
+
+-- Compare l'infobulle de l'objet porté avec celle de l'objet de base (sans
+-- enchantement ni libram) : chaque ligne verte en plus est affichée. Les
+-- librams de tête et de jambes ne passent pas toujours par le champ
+-- d'enchantement du lien, d'où la comparaison avec l'objet nu.
 local function GetEnchantText(link)
   if not link then return nil end
-  local enchantID = link:match("item:%d+:(%d*)")
-  if not enchantID or enchantID == "" or enchantID == "0" then return nil end
-  if cache[link] then return cache[link] end
+  local cached = cache[link]
+  if cached then return cached ~= "" and cached or nil end
 
-  local plain = link:gsub("(item:%d+):%d*", "%1:")
+  local itemString = link:match("item:[%-%d:]+")
+  if not itemString then return nil end
+  -- objet nu : on vide seulement l'enchantement et les 4 gemmes et on garde
+  -- le reste (suffixe, uniqueID, niveau), sinon les valeurs des suffixes
+  -- aléatoires changent et leurs lignes passent pour un enchantement
+  local plain, n = itemString:gsub("^item:(%d+):[^:]*:[^:]*:[^:]*:[^:]*:[^:]*", "item:%1:::::", 1)
+  if n == 0 then plain = "item:" .. itemString:match("item:(%d+)") end
+
   local seen = {}
-  for _, line in ipairs(TooltipLines(plain)) do
+  local plainLines = TooltipLines(plain)
+  -- objet nu pas encore chargé : toutes ses lignes vertes passeraient pour un
+  -- enchantement (et resteraient en cache) ; on attendra GET_ITEM_INFO_RECEIVED
+  if #plainLines == 0 then return nil end
+  for _, line in ipairs(plainLines) do
     seen[line.text] = (seen[line.text] or 0) + 1
   end
+  local found = {}
   for _, line in ipairs(TooltipLines(link)) do
     if seen[line.text] and seen[line.text] > 0 then
       seen[line.text] = seen[line.text] - 1
-    elseif line.green then
-      -- retire le préfixe « Enchanted: » / « Enchanté : »
-      local text = line.text:gsub("^[^:]-%s?:%s*", "", 1)
-      if text == "" then text = line.text end
-      for _, abbr in ipairs(ABBREVIATIONS) do
-        text = text:gsub(abbr[1], abbr[2])
-      end
-      cache[link] = text
-      return text
+    elseif line.green and not IsItemEffectLine(line.text) then
+      found[#found + 1] = Shorten(line.text)
     end
   end
-  return nil -- objet pas encore en cache : on réessaiera
+
+  if #found > 0 then
+    local text = table.concat(found, "\n")
+    cache[link] = text
+    return text
+  end
+  -- rien trouvé : on ne mémorise que si l'objet est bien chargé
+  local GetInfo = (C_Item and C_Item.GetItemInfo) or GetItemInfo
+  if #plainLines > 0 and GetInfo and GetInfo(link) then cache[link] = "" end
+  return nil
 end
 
 -- =========================================================
@@ -109,7 +216,7 @@ local function CreateLabels(root, prefix, gap)
     fs:SetFontObject(NS.Skin.Font(10))
     fs:SetTextColor(NS.Skin.Color(NS.Skin.C.enchant))
     fs:SetWordWrap(true)
-    if fs.SetMaxLines then fs:SetMaxLines(2) end
+    if fs.SetMaxLines then fs:SetMaxLines(3) end
     if side == "left" then
       fs:SetWidth(TEXT_WIDTH)
       fs:SetJustifyH("LEFT")
@@ -120,7 +227,7 @@ local function CreateLabels(root, prefix, gap)
       fs:SetPoint("RIGHT", button, "LEFT", -gap, 0)
     else
       fs:SetWidth(button:GetWidth())
-      if fs.SetMaxLines then fs:SetMaxLines(3) end
+      if fs.SetMaxLines then fs:SetMaxLines(4) end
       fs:SetJustifyH("CENTER")
       fs:SetPoint("BOTTOM", button, "TOP", 0, 2)
     end

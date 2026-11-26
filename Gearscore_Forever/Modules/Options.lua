@@ -18,14 +18,17 @@ local ROW_H = 40
 local SECTIONS = {
   { label = "Tooltips", options = {
     { "item",    "Score of the item under the mouse" },
+    { "itemilvl", "Item level of the item under the mouse" },
     { "player",  "Score of players you mouse over" },
     { "ilvl",    "Average item level next to the score" },
+    { "spec",    "Main talent tree and points per tree (Fire 0/48/3)" },
     { "auto",    "Inspect players automatically on mouseover" },
   } },
   { label = "Character & inspect", options = {
-    { "sheet",    "GS and iLvl under your character model" },
-    { "inspect",  "GS and iLvl in the inspect window" },
+    { "sheet",    "GS with iLvl below it on your character sheet" },
+    { "inspect",  "GS with iLvl below it in the inspect window" },
     { "enchants", "Enchant name next to each equipment slot" },
+    { "talentbutton", "Opens the full talent trees of the inspected player" },
   } },
   { label = "Interface", options = {
     { "minimap", "Show the minimap button" },
@@ -105,7 +108,39 @@ local function CreateLanguageRow(parent, y)
   languageSelector:SetPoint("TOPRIGHT", -14, -y - 8)
 end
 
+-- Thème : l'interface de l'addon ou celle du jeu (Forever). Les fenêtres sont
+-- construites différemment : changer de thème recharge l'interface.
+local THEMES = {
+  { value = "default", label = "Default" },
+  { value = "forever", label = "Forever" },
+}
+
+local function CreateThemeSelector(parent)
+  local choices = {}
+  for i, t in ipairs(THEMES) do choices[i] = { value = t.value, label = L[t.label] } end
+  return S.Dropdown(parent, choices, 96, function() return NS.DB().theme or "default" end, function(value)
+    confirm:Ask(L["The interface will reload to apply the theme."], function()
+      NS.DB().theme = value ~= "default" and value or nil
+      ReloadUI()
+    end)
+  end)
+end
+
+-- Thème Forever : le titre et l'icône sont ceux de la fenêtre du jeu ; la
+-- rangée sous le titre porte le score du personnage et le choix du thème.
+local function CreateGameHeader(f)
+  scoreValue = S.Text(f.titleBar, 18)
+  scoreValue:SetPoint("LEFT", 6, 0)
+
+  scoreSub = S.Text(f.titleBar, 11, "muted")
+  scoreSub:SetPoint("BOTTOMLEFT", scoreValue, "BOTTOMRIGHT", 6, 2)
+
+  local theme = CreateThemeSelector(f.titleBar)
+  theme:SetPoint("RIGHT", -4, 0)
+end
+
 local function CreateHeader(f)
+  if S.FOREVER then return CreateGameHeader(f) end
   local logo = f:CreateTexture(nil, "ARTWORK")
   logo:SetSize(38, 38)
   logo:SetPoint("TOPLEFT", 14, -12)
@@ -128,24 +163,35 @@ local function CreateHeader(f)
   scoreSub:SetPoint("TOPRIGHT", scoreValue, "BOTTOMRIGHT", 0, -2)
   scoreSub:SetJustifyH("RIGHT")
 
+  local theme = CreateThemeSelector(f)
+  theme:SetPoint("TOPRIGHT", -130, -19)
+
   local rule = S.Rule(f, C.border, 1)
   rule:SetPoint("TOPLEFT", PADDING, -HEADER_H + 1)
   rule:SetPoint("TOPRIGHT", -PADDING, -HEADER_H + 1)
 end
 
 local function CreatePanel()
-  local f = S.Window("GearscoreForeverOptions", WIDTH, 400)
+  local db = NS.DB()
+  S.ApplyTheme(db.theme) -- avant toute création (changer de thème recharge l'interface)
+
+  local f = S.Window("GearscoreForeverOptions", WIDTH, 400,
+    "GearScore Forever  |cffd0d0d0v" .. (NS.VERSION or "?") .. "|r", ICON)
   tinsert(UISpecialFrames, "GearscoreForeverOptions") -- Échap ferme la fenêtre
 
+  confirm = S.Confirm(f, L["Reload"], L["Cancel"])
   CreateHeader(f)
 
-  local db = NS.DB()
   db.collapsed = type(db.collapsed) == "table" and db.collapsed or {}
+
+  -- Haut du contenu ; thème Forever : dans la zone sombre, sous le titre.
+  local top = S.FOREVER and f.top + 10 or HEADER_H + 4
+  local bottom = S.FOREVER and FOOTER_H + 10 or FOOTER_H
 
   -- La fenêtre suit la hauteur des sections pendant qu'elles se replient.
   local sections = {}
   local function Relayout()
-    local total = HEADER_H + 4 + FOOTER_H
+    local total = top + bottom
     for _, s in ipairs(sections) do total = total + s:GetHeight() + GAP end
     f:SetHeight(total)
   end
@@ -162,8 +208,8 @@ local function CreatePanel()
       s:SetPoint("TOPLEFT", previous, "BOTTOMLEFT", 0, -GAP)
       s:SetPoint("TOPRIGHT", previous, "BOTTOMRIGHT", 0, -GAP)
     else
-      s:SetPoint("TOPLEFT", PADDING, -HEADER_H - 4)
-      s:SetPoint("TOPRIGHT", -PADDING, -HEADER_H - 4)
+      s:SetPoint("TOPLEFT", PADDING, -top)
+      s:SetPoint("TOPRIGHT", -PADDING, -top)
     end
 
     local y = 0
@@ -180,10 +226,8 @@ local function CreatePanel()
 
   -- Pied : commandes utiles
   local hint = S.Text(f, 11, "dim")
-  hint:SetPoint("BOTTOM", 0, 12)
-  hint:SetText("/gs   ·   /gs target   ·   /gs group")
-
-  confirm = S.Confirm(f, L["Reload"], L["Cancel"])
+  hint:SetPoint("BOTTOM", 0, S.FOREVER and 20 or 12)
+  hint:SetText("/gs   ·   /gs target   ·   /gs group   ·   /gs talents")
 
   f:HookScript("OnShow", function() NS.UpdateOptionsPanel() end)
   return f
