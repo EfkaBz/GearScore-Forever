@@ -39,11 +39,12 @@ local panel
 local switches = {}
 local languageSelector, confirm, scoreValue, scoreSub
 
--- Les libellés « English » / « Français » restent dans leur propre langue.
+-- Les noms des langues restent dans leur propre langue.
 local LANGUAGES = {
   { value = "auto", label = "Automatic" },
   { value = "enUS", label = "English" },
   { value = "frFR", label = "Français" },
+  { value = "ruRU", label = "Русский" },
 }
 
 -- Les textes déjà affichés ne changent qu'au rechargement de l'interface :
@@ -104,7 +105,7 @@ local function CreateLanguageRow(parent, y)
   for i, choice in ipairs(LANGUAGES) do
     choices[i] = { value = choice.value, label = L[choice.label] }
   end
-  languageSelector = S.Segmented(parent, choices, 84, SelectLanguage)
+  languageSelector = S.Segmented(parent, choices, 76, SelectLanguage)
   languageSelector:SetPoint("TOPRIGHT", -14, -y - 8)
 end
 
